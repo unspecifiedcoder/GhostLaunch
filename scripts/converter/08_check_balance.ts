@@ -1,62 +1,19 @@
 import { ethers } from "hardhat";
 import * as fs from "fs";
 import * as path from "path";
-import { decryptPCT } from "../test/helpers";
-import { bytesToHex, hexToBytes } from "@noble/hashes/utils";
-import { subOrder, mulPointEscalar, Base8 } from "@zk-kit/baby-jubjub";
+import { decryptPCT } from "../../test/helpers";
+import { getWallet, deriveKeysFromUser, decryptEGCTBalance } from "../../src/utils";
+import { mulPointEscalar, Base8 } from "@zk-kit/baby-jubjub";
 import { formatPrivKeyForBabyJub } from "maci-crypto";
-import { decryptPoint } from "../src/jub/jub";
-
-export function i0(signature: string): bigint {
-    if (typeof signature !== "string" || signature.length < 132)
-      throw new Error("Invalid signature hex string");
-  
-    const hash = ethers.keccak256(signature as `0x${string}`);           // 0x…
-    const cleanSig = hash.startsWith("0x") ? hash.slice(2) : hash;
-    let bytes = hexToBytes(cleanSig);                // Uint8Array(32)
-  
-    bytes[0]  &= 0b11111000;
-    bytes[31] &= 0b01111111;
-    bytes[31] |= 0b01000000;
-  
-    const le = bytes.reverse();                  // noble utils entrega big-endian
-    let sk = BigInt(`0x${bytesToHex(le)}`);
-  
-    sk %= subOrder;
-    if (sk === BigInt(0)) sk = BigInt(1);                     
-    return sk;                             
-}
-// Function to decrypt EGCT using ElGamal decryption and find the discrete log
-function decryptEGCTBalance(privateKey: bigint, c1: [bigint, bigint], c2: [bigint, bigint]): bigint {
-    try {
-        // Decrypt the point using ElGamal
-        const decryptedPoint = decryptPoint(privateKey, c1, c2);
-        
-        // Find the discrete log (brute force for small values)
-        // The balance should be relatively small, so we can brute force
-        for (let i = 0n; i <= 10000n; i++) {
-            const testPoint = mulPointEscalar(Base8, i);
-            if (testPoint[0] === decryptedPoint[0] && testPoint[1] === decryptedPoint[1]) {
-                return i;
-            }
-        }
-        
-        console.log("⚠️  Could not find discrete log for decrypted point:", decryptedPoint);
-        return 0n;
-    } catch (error) {
-        console.log("⚠️  Error decrypting EGCT:", error);
-        return 0n;
-    }
-}
-
 const main = async () => {
-    // Get the wallet
-    // const [wallet] = await ethers.getSigners();
-    const [owner, wallet] = await ethers.getSigners();
+    // Configure which wallet to use: 1 for first signer, 2 for second signer
+    const WALLET_NUMBER = 2;
+    
+    const wallet = await getWallet(WALLET_NUMBER);
     const userAddress = await wallet.getAddress();
     
     // Read addresses from the latest deployment
-    const deploymentPath = path.join(__dirname, "../deployments/latest-fuji.json");
+    const deploymentPath = path.join(__dirname, "../../deployments/converter/latest-converter.json");
     const deploymentData = JSON.parse(fs.readFileSync(deploymentPath, "utf8"));
     
     const encryptedERCAddress = deploymentData.contracts.encryptedERC;
@@ -85,35 +42,34 @@ const main = async () => {
         
         // Try to load keys from saved file first
         let userPrivateKey: bigint;
+        let formattedPrivateKey: bigint;
         let signature: string;
         
-        const keysPath = path.join(__dirname, "../deployments/user-keys.json");
+        const keysPath = path.join(__dirname, "../../deployments/converter/user-keys.json");
         if (fs.existsSync(keysPath)) {
             console.log("🔑 Loading keys from saved file...");
             const keysData = JSON.parse(fs.readFileSync(keysPath, "utf8"));
             
             if (keysData.userAddress === userAddress && keysData.keysMatch) {
                 userPrivateKey = BigInt(keysData.privateKey);
+                formattedPrivateKey = formatPrivKeyForBabyJub(userPrivateKey);
                 signature = keysData.signature;
                 console.log("✅ Keys loaded from file");
             } else {
-                console.log("⚠️  Saved keys mismatch, generating new signature...");
-                const message = `eERC
-Registering user with
- Address:${userAddress.toLowerCase()}`;
-                signature = await wallet.signMessage(message);
-                userPrivateKey = i0(signature);
+                console.log("⚠️  Saved keys mismatch, generating new keys...");
+                const keys = await deriveKeysFromUser(userAddress, wallet);
+                userPrivateKey = keys.privateKey;
+                formattedPrivateKey = keys.formattedPrivateKey;
+                signature = keys.signature;
             }
         } else {
-            console.log("🔐 Generating signature for balance decryption...");
-            const message = `eERC
-Registering user with
- Address:${userAddress.toLowerCase()}`;
-            signature = await wallet.signMessage(message);
-            userPrivateKey = i0(signature);
+            console.log("🔐 Generating keys for balance decryption...");
+            const keys = await deriveKeysFromUser(userAddress, wallet);
+            userPrivateKey = keys.privateKey;
+            formattedPrivateKey = keys.formattedPrivateKey;
+            signature = keys.signature;
         }
         
-        const formattedPrivateKey = formatPrivKeyForBabyJub(userPrivateKey);
         console.log("🔑 Private key ready for decryption");
         
         // Get user's public key for verification

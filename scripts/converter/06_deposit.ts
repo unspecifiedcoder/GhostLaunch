@@ -1,116 +1,19 @@
 import { ethers } from "hardhat";
 import * as fs from "fs";
 import * as path from "path";
-import { processPoseidonEncryption } from "../src/poseidon";
-import { decryptPCT } from "../test/helpers";
-import { bytesToHex, hexToBytes } from "@noble/hashes/utils";
-import { subOrder, mulPointEscalar, Base8 } from "@zk-kit/baby-jubjub";
-import { formatPrivKeyForBabyJub } from "maci-crypto";
-import { decryptPoint } from "../src/jub/jub";
-
-// Derive private key from signature (same method as registration)
-export function i0(signature: string): bigint {
-    if (typeof signature !== "string" || signature.length < 132)
-      throw new Error("Invalid signature hex string");
-  
-    const hash = ethers.keccak256(signature as `0x${string}`);      
-    const cleanSig = hash.startsWith("0x") ? hash.slice(2) : hash;
-    let bytes = hexToBytes(cleanSig);               
-  
-    bytes[0]  &= 0b11111000;
-    bytes[31] &= 0b01111111;
-    bytes[31] |= 0b01000000;
-  
-    const le = bytes.reverse();                  
-    let sk = BigInt(`0x${bytesToHex(le)}`);
-  
-    sk %= subOrder;
-    if (sk === BigInt(0)) sk = BigInt(1);                  
-    return sk;                                   
-}
-
-// Local decryptPoint function removed - using imported version from jub module
-
-// Function to decrypt EGCT using ElGamal decryption and find the discrete log
-function decryptEGCTBalance(privateKey: bigint, c1: [bigint, bigint], c2: [bigint, bigint]): bigint {
-    try {
-        // Decrypt the point using ElGamal
-        const decryptedPoint = decryptPoint(privateKey, c1, c2);
-        
-        // Find the discrete log (brute force for small values)
-        // The balance should be relatively small, so we can brute force
-        for (let i = 0n; i <= 10000n; i++) {
-            const testPoint = mulPointEscalar(Base8, i);
-            if (testPoint[0] === decryptedPoint[0] && testPoint[1] === decryptedPoint[1]) {
-                return i;
-            }
-        }
-        
-        console.log("⚠️  Could not find discrete log for decrypted point:", decryptedPoint);
-        return 0n;
-    } catch (error) {
-        console.log("⚠️  Error decrypting EGCT:", error);
-        return 0n;
-    }
-}
-
-// Function to get decrypted balance from encrypted balance
-async function getDecryptedBalance(
-    privateKey: bigint,
-    amountPCTs: any[],
-    balancePCT: bigint[],
-    encryptedBalance: bigint[][]
-): Promise<bigint> {
-    // First, try to decrypt the EGCT (main encrypted balance)
-    const c1: [bigint, bigint] = [encryptedBalance[0][0], encryptedBalance[0][1]];
-    const c2: [bigint, bigint] = [encryptedBalance[1][0], encryptedBalance[1][1]];
-    
-    // Check if EGCT is empty (all zeros)
-    const isEGCTEmpty = c1[0] === 0n && c1[1] === 0n && c2[0] === 0n && c2[1] === 0n;
-    
-    if (!isEGCTEmpty) {
-        // Decrypt EGCT - this is the primary balance
-        const egctBalance = decryptEGCTBalance(privateKey, c1, c2);
-        console.log("🔐 EGCT Balance found:", egctBalance.toString());
-        return egctBalance;
-    }
-    
-    // If EGCT is empty, fall back to PCT decryption
-    let totalBalance = 0n;
-
-    // Decrypt the balance PCT if it exists
-    if (balancePCT.some((e) => e !== 0n)) {
-        try {
-            const decryptedBalancePCT = await decryptPCT(privateKey, balancePCT);
-            totalBalance += BigInt(decryptedBalancePCT[0]);
-        } catch (error) {
-            console.log("Note: Balance PCT is empty or couldn't be decrypted");
-        }
-    }
-
-    // Decrypt all the amount PCTs and add them to the total balance
-    for (const amountPCT of amountPCTs) {
-        if (amountPCT.pct && amountPCT.pct.some((e: bigint) => e !== 0n)) {
-            try {
-                const decryptedAmountPCT = await decryptPCT(privateKey, amountPCT.pct);
-                totalBalance += BigInt(decryptedAmountPCT[0]);
-            } catch (error) {
-                console.log("Note: Some amount PCT couldn't be decrypted");
-            }
-        }
-    }
-
-    return totalBalance;
-}
+import { processPoseidonEncryption } from "../../src/poseidon";
+import { getWallet, deriveKeysFromUser, getDecryptedBalance } from "../../src/utils";
 
 const main = async () => {
-    // Get the wallet
-    // const [owner, wallet] = await ethers.getSigners();
-    const [wallet] = await ethers.getSigners();
+    // Configure which wallet to use: 1 for first signer, 2 for second signer
+    const WALLET_NUMBER = 1;
+    const depositAmountStr = "50"; // Amount to Deposit
+    
+    const wallet = await getWallet(WALLET_NUMBER);
     const userAddress = await wallet.getAddress();
     
     // Read addresses from the latest deployment
-    const deploymentPath = path.join(__dirname, "../deployments/latest-fuji.json");
+    const deploymentPath = path.join(__dirname, "../../deployments/converter/latest-converter.json");
     const deploymentData = JSON.parse(fs.readFileSync(deploymentPath, "utf8"));
     
     const encryptedERCAddress = deploymentData.contracts.encryptedERC;
@@ -121,22 +24,6 @@ const main = async () => {
     console.log("User address:", userAddress);
     console.log("EncryptedERC:", encryptedERCAddress);
     console.log("TestERC20:", testERC20Address);
-    
-    // Check gas balance
-    const balance = await ethers.provider.getBalance(userAddress);
-    console.log("💰 Current AVAX balance:", ethers.formatEther(balance), "AVAX");
-    
-    if (balance === 0n) {
-        throw new Error("❌ Account has no funds to pay gas. You need to send AVAX to this address.");
-    }
-    
-    // Check if there's enough gas (rough estimate)
-    const estimatedGas = ethers.parseUnits("0.01", "ether"); // Conservative estimate
-    if (balance < estimatedGas) {
-        console.warn("⚠️  Low balance. May not be sufficient for the transaction.");
-        console.warn("   Current balance:", ethers.formatEther(balance), "AVAX");
-        console.warn("   Required estimate:", ethers.formatEther(estimatedGas), "AVAX");
-    }
     
     // Connect to contracts using the wallet
     const testERC20 = await ethers.getContractAt("SimpleERC20", testERC20Address, wallet);
@@ -153,26 +40,8 @@ const main = async () => {
         }
         console.log("✅ User is registered");
         
-        // 2. Generate signature and derive private key (for balance decryption)
-        console.log("🔐 Generating signature for balance decryption...");
-        const message = `eERC
-Registering user with
- Address:${userAddress.toLowerCase()}`;
-        console.log('📝 Message to sign for balance:', message);
-        const signature = await wallet.signMessage(message);
-        if (!signature || signature.length < 64) {
-            throw new Error("Invalid signature received from user");
-        }
-        console.log("✅ Signature generated");
-        
-        // Derive private key from signature
-        const userPrivateKey = i0(signature);
-        const formattedPrivateKey = formatPrivKeyForBabyJub(userPrivateKey);
-        console.log("🔑 Private key derived from signature");
-        
-        // Derive public key from private key (for verification)
-        const derivedPublicKey = mulPointEscalar(Base8, formattedPrivateKey);
-        console.log("🔑 Derived public key:", [derivedPublicKey[0].toString(), derivedPublicKey[1].toString()]);
+        // 2. Generate keys using utility function
+        const { privateKey: userPrivateKey, formattedPrivateKey, publicKey: derivedPublicKey, signature } = await deriveKeysFromUser(userAddress, wallet);
         
         // 3. Get user's public key for PCT generation
         const userPublicKey = await registrar.getUserPublicKey(userAddress);
@@ -234,8 +103,8 @@ Registering user with
             console.log("📋 No existing encrypted balance found (this is normal for first deposit)");
         }
         
-        // Amount to deposit: 1 TEST token
-        const depositAmount = ethers.parseUnits("10", tokenDecimals);
+        // Amount to deposit: 10 TEST token
+        const depositAmount = ethers.parseUnits(depositAmountStr, tokenDecimals);
         
         if (tokenBalance < depositAmount) {
             console.error(`❌ Insufficient ${tokenSymbol} balance. Required: 1 ${tokenSymbol}, Available:`, ethers.formatUnits(tokenBalance, tokenDecimals), tokenSymbol);
@@ -370,7 +239,7 @@ Registering user with
             note: "Keys for decrypting encrypted balances in EncryptedERC"
         };
         
-        const keysPath = path.join(__dirname, "../deployments/user-keys.json");
+                    const keysPath = path.join(__dirname, "../../deployments/converter/user-keys.json");
         fs.writeFileSync(keysPath, JSON.stringify(keysData, null, 2));
         console.log(`\n🔑 Keys saved to: ${keysPath}`);
         

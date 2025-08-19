@@ -1,84 +1,28 @@
-import { ethers, zkit } from "hardhat";
+import { ethers } from "hardhat";
 import * as fs from "fs";
 import * as path from "path";
-import { withdraw } from "../test/helpers";
-import { bytesToHex, hexToBytes } from "@noble/hashes/utils";
-import { subOrder, mulPointEscalar, Base8 } from "@zk-kit/baby-jubjub";
+import { withdraw } from "../../test/helpers";
+import { i0, decryptEGCTBalance, createUserFromPrivateKey, getWallet } from "../../src/utils";
 import { formatPrivKeyForBabyJub } from "maci-crypto";
-import { decryptPoint } from "../src/jub/jub";
-import { User } from "../test/user";
-
-// Derive private key from signature (same method as registration)
-export function i0(signature: string): bigint {
-    if (typeof signature !== "string" || signature.length < 132)
-      throw new Error("Invalid signature hex string");
-  
-    const hash = ethers.keccak256(signature as `0x${string}`);           // 0x…
-    const cleanSig = hash.startsWith("0x") ? hash.slice(2) : hash;
-    let bytes = hexToBytes(cleanSig);                // Uint8Array(32)
-  
-    bytes[0]  &= 0b11111000;
-    bytes[31] &= 0b01111111;
-    bytes[31] |= 0b01000000;
-  
-    const le = bytes.reverse();                  // noble utils entrega big-endian
-    let sk = BigInt(`0x${bytesToHex(le)}`);
-  
-    sk %= subOrder;
-    if (sk === BigInt(0)) sk = BigInt(1);          
-    return sk;                             
-}
-
-// Function to decrypt EGCT using ElGamal decryption and find the discrete log
-function decryptEGCTBalance(privateKey: bigint, c1: [bigint, bigint], c2: [bigint, bigint]): bigint {
-    try {
-        // Decrypt the point using ElGamal
-        const decryptedPoint = decryptPoint(privateKey, c1, c2);
-        
-        // Find the discrete log (brute force for small values)
-        // The balance should be relatively small, so we can brute force
-        for (let i = 0n; i <= 10000n; i++) {
-            const testPoint = mulPointEscalar(Base8, i);
-            if (testPoint[0] === decryptedPoint[0] && testPoint[1] === decryptedPoint[1]) {
-                return i;
-            }
-        }
-        
-        console.log("⚠️  Could not find discrete log for decrypted point:", decryptedPoint);
-        return 0n;
-    } catch (error) {
-        console.log("⚠️  Error decrypting EGCT:", error);
-        return 0n;
-    }
-}
-
-// Create a User object with custom private key
-function createUserFromPrivateKey(privateKey: bigint, signer: any): User {
-    // Create a new user instance
-    const user = new User(signer);
-    
-    // Override the generated keys with our deterministic ones
-    user.privateKey = privateKey;
-    user.formattedPrivateKey = formatPrivKeyForBabyJub(privateKey);
-    user.publicKey = mulPointEscalar(Base8, user.formattedPrivateKey).map((x) => BigInt(x));
-    
-    return user;
-}
+import { mulPointEscalar, Base8 } from "@zk-kit/baby-jubjub";
 
 const main = async () => {
-    // Get the wallet
-    const [user, wallet] = await ethers.getSigners();
+    // Configure which wallet to use: 1 for first signer, 2 for second signer
+    // Can be overridden with environment variable: WALLET_NUMBER=1 or WALLET_NUMBER=2
+    const WALLET_NUMBER = 2;
+    
+    const wallet = await getWallet(WALLET_NUMBER);
     const userAddress = await wallet.getAddress();
     
     // Hardcoded withdrawal amount (you can change this)
-    const withdrawAmountStr = "30"; // Amount to withdraw
+    const withdrawAmountStr = "40"; // Amount to withdraw
     
     console.log("💸 Withdrawing encrypted tokens to regular ERC20...");
     console.log("User address:", userAddress);
     console.log("Withdraw amount:", withdrawAmountStr);
     
     // Read addresses from the latest deployment
-    const deploymentPath = path.join(__dirname, "../deployments/latest-fuji.json");
+    const deploymentPath = path.join(__dirname, "../../deployments/converter/latest-converter.json");
     const deploymentData = JSON.parse(fs.readFileSync(deploymentPath, "utf8"));
     
     const encryptedERCAddress = deploymentData.contracts.encryptedERC;
@@ -107,7 +51,7 @@ const main = async () => {
         let userPrivateKey: bigint;
         let signature: string;
         
-        const keysPath = path.join(__dirname, "../deployments/user-keys.json");
+        const keysPath = path.join(__dirname, "../../deployments/converter/user-keys.json");
         if (fs.existsSync(keysPath)) {
             console.log("🔑 Loading keys from saved file...");
             const keysData = JSON.parse(fs.readFileSync(keysPath, "utf8"));

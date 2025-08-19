@@ -1,17 +1,17 @@
 import { ethers } from "hardhat";
+import { getWallet } from "../../src/utils";
 import * as fs from "fs";
 import * as path from "path";
 
 const main = async () => {
-    // Use specific PRIVATE_KEY for the faucet claim
-    // const [wallet] = await ethers.getSigners();
-    const [owner, wallet] = await ethers.getSigners();
+    // Configure which wallet to use: 1 for first signer, 2 for second signer
+    const WALLET_NUMBER = 2;
     
-    // Create wallet with the PRIVATE_KEY
+    const wallet = await getWallet(WALLET_NUMBER);
     const userAddress = await wallet.getAddress();
     
     // Read addresses from the latest deployment
-    const deploymentPath = path.join(__dirname, "../deployments/latest-fuji.json");
+    const deploymentPath = path.join(__dirname, "../../deployments/converter/latest-converter.json");
     const deploymentData = JSON.parse(fs.readFileSync(deploymentPath, "utf8"));
     
     const testERC20Address = deploymentData.contracts.testERC20;
@@ -19,22 +19,6 @@ const main = async () => {
     console.log("🔧 Claiming tokens from testERC20 faucet...");
     console.log("Token address:", testERC20Address);
     console.log("User address:", userAddress);
-    
-    // Check gas balance
-    const balance = await ethers.provider.getBalance(userAddress);
-    console.log("💰 Current AVAX balance:", ethers.formatEther(balance), "AVAX");
-    
-    if (balance === 0n) {
-        throw new Error("❌ Account has no funds to pay gas. You need to send AVAX to this address.");
-    }
-    
-    // Check if there's enough gas (rough estimate)
-    const estimatedGas = ethers.parseUnits("0.005", "ether"); // Small estimate for faucet claim
-    if (balance < estimatedGas) {
-        console.warn("⚠️  Low balance. May not be sufficient for the transaction.");
-        console.warn("   Current balance:", ethers.formatEther(balance), "AVAX");
-        console.warn("   Required estimate:", ethers.formatEther(estimatedGas), "AVAX");
-    }
     
     // Connect to the testERC20 contract using the wallet
     const testERC20 = await ethers.getContractAt("SimpleERC20", testERC20Address, wallet);

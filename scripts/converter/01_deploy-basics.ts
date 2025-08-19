@@ -1,8 +1,7 @@
 import { ethers } from "hardhat";
-import { deployLibrary, deployVerifiers } from "../test/helpers";
-import { DECIMALS } from "./constants";
-import * as fs from "fs";
-import * as path from "path";
+import { deployLibrary, deployVerifiers } from "../../test/helpers";
+import { DECIMALS } from "../constants";
+import { saveDeploymentData } from "../../src/utils";
 
 const main = async () => {
 	// get deployer
@@ -23,7 +22,7 @@ const main = async () => {
 
 	// also deploys new erc20
 	const erc20Factory = await ethers.getContractFactory("SimpleERC20");
-	const erc20 = await erc20Factory.deploy("Test", "TEST", 18);
+	const erc20 = await erc20Factory.deploy("AvaxTest", "AVAXTEST", 18);
 	await erc20.waitForDeployment();
 
 	// mints some amount to deployer as well
@@ -68,25 +67,8 @@ const main = async () => {
 		testERC20: erc20.target,
 	});
 
-	// Save to JSON file
-	const outputDir = path.join(__dirname, "../deployments");
-	if (!fs.existsSync(outputDir)) {
-		fs.mkdirSync(outputDir, { recursive: true });
-	}
-
-	const fileName = `deployment-fuji-${Date.now()}.json`;
-	const filePath = path.join(outputDir, fileName);
-	
-	fs.writeFileSync(filePath, JSON.stringify(deploymentData, null, 2));
-	
-	console.log("\n📁 Deployment data saved to:", filePath);
-	console.log("🔗 You can import this file in your frontend like:");
-	console.log(`   import deploymentData from './deployments/${fileName}';`);
-	
-	// Also create a latest.json file for easy access
-	const latestFilePath = path.join(outputDir, "latest-fuji.json");
-	fs.writeFileSync(latestFilePath, JSON.stringify(deploymentData, null, 2));
-	console.log("📄 Latest deployment also saved to: deployments/latest-fuji.json");
+	// Save deployment data using utility function
+	saveDeploymentData(deploymentData, __dirname);
 };
 
 main().catch((error) => {

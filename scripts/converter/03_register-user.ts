@@ -1,21 +1,20 @@
 import { ethers, zkit } from "hardhat";
 import * as fs from "fs";
 import * as path from "path";
-import { Base8, mulPointEscalar, subOrder } from "@zk-kit/baby-jubjub";
-import { formatPrivKeyForBabyJub, genPrivKey } from "maci-crypto";
 import { poseidon3 } from "poseidon-lite";
-import { bytesToHex, hexToBytes } from "@noble/hashes/utils";
-import type { RegistrationCircuit } from "../generated-types/zkit";
+import { deriveKeysFromUser, getWallet } from "../../src/utils";
+import type { RegistrationCircuit } from "../../generated-types/zkit";
 
 const main = async () => {
-    // Use specific PRIVATE_KEY for registration
-    // const [wallet] = await ethers.getSigners();
-    const [owner, wallet] = await ethers.getSigners();
-
+    // Configure which wallet to use: 1 for first signer, 2 for second signer
+    // Can be overridden with environment variable: WALLET_NUMBER=1 or WALLET_NUMBER=2
+    const WALLET_NUMBER = 1;
+    
+    const wallet = await getWallet(WALLET_NUMBER);
     const userAddress = await wallet.getAddress();
     
     // Read deployment addresses
-    const deploymentPath = path.join(__dirname, "../deployments/latest-fuji.json");
+    const deploymentPath = path.join(__dirname, "../../deployments/converter/latest-converter.json");
     const deploymentData = JSON.parse(fs.readFileSync(deploymentPath, "utf8"));
     
     const registrarAddress = deploymentData.contracts.registrar;
@@ -23,22 +22,6 @@ const main = async () => {
     console.log("🔧 Registering user in EncryptedERC using zkit...");
     console.log("Registrar:", registrarAddress);
     console.log("User to register:", userAddress);
-    
-    // Check gas balance
-    const balance = await ethers.provider.getBalance(userAddress);
-    console.log("💰 Current balance:", ethers.formatEther(balance), "AVAX");
-    
-    if (balance === 0n) {
-        throw new Error("❌ Account has no funds to pay gas. You need to send ETH to this address.");
-    }
-    
-    // Check if there's enough gas (rough estimate)
-    const estimatedGas = ethers.parseUnits("0.01", "ether"); // Conservative estimate
-    if (balance < estimatedGas) {
-        console.warn("⚠️  Low balance. May not be sufficient for the transaction.");
-        console.warn("   Current balance:", ethers.formatEther(balance), "AVAX");
-        console.warn("   Required estimate:", ethers.formatEther(estimatedGas), "AVAX");
-    }
     
     // Connect to contract using the specific wallet
     const registrar = await ethers.getContractAt("Registrar", registrarAddress, wallet);
@@ -50,29 +33,8 @@ const main = async () => {
         return;
     }
     
-    // 2. Generate deterministic private key from signature
-    const message = `eERC
-Registering user with
- Address:${userAddress.toLowerCase()}`;
-    console.log('📝 Message to sign for balance:', message);
-    const signature = await wallet.signMessage(message);
-    if (!signature || signature.length < 64) {
-        throw new Error("Invalid signature received from user");
-    }
-    
-    // Derive private key from signature deterministically
-    console.log("🔑 Deriving private key from signature...");
-    const privateKey = i0(signature);
-    console.log("Private key (raw):", privateKey.toString());
-    
-    // Format private key for BabyJubJub
-    const formattedPrivateKey = formatPrivKeyForBabyJub(privateKey) % subOrder;
-    console.log("Private key (formatted):", formattedPrivateKey.toString());
-    
-    // Generate public key using BabyJubJub
-    const publicKey = mulPointEscalar(Base8, formattedPrivateKey).map((x) => BigInt(x));
-    console.log("Public key X:", publicKey[0].toString());
-    console.log("Public key Y:", publicKey[1].toString());
+    // 2. Generate deterministic private key from signature using utility function
+    const { privateKey, formattedPrivateKey, publicKey } = await deriveKeysFromUser(userAddress, wallet);
     
     // 3. Generate registration hash using poseidon3
     const chainId = await ethers.provider.getNetwork().then(net => net.chainId);
@@ -175,7 +137,7 @@ Registering user with
             registrationHash: registrationHash.toString()
         };
         
-        const keysPath = path.join(__dirname, "../deployments/user-keys.json");
+        const keysPath = path.join(__dirname, "../../deployments/converter/user-keys.json");
         fs.writeFileSync(keysPath, JSON.stringify(userKeys, null, 2));
         console.log("🔑 User keys saved to:", keysPath);
         
@@ -204,27 +166,6 @@ Registering user with
         throw error;
     }
 };
-
-// Function to derive 32 bytes from signature (i0 function)
-export function i0(signature: string): bigint {
-    if (typeof signature !== "string" || signature.length < 132)
-      throw new Error("Invalid signature hex string");
-  
-    const hash = ethers.keccak256(signature as `0x${string}`);           // 0x…
-    const cleanSig = hash.startsWith("0x") ? hash.slice(2) : hash;
-    let bytes = hexToBytes(cleanSig);                // Uint8Array(32)
-  
-    bytes[0]  &= 0b11111000;
-    bytes[31] &= 0b01111111;
-    bytes[31] |= 0b01000000;
-  
-    const le = bytes.reverse();                  // noble utils entrega big-endian
-    let sk = BigInt(`0x${bytesToHex(le)}`);
-  
-    sk %= subOrder;
-    if (sk === BigInt(0)) sk = BigInt(1);                      // nunca cero
-    return sk;                                   // listo para mulPointEscalar
-}
 
 main().catch((error) => {
     console.error(error);

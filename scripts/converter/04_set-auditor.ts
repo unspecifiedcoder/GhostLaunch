@@ -1,18 +1,26 @@
-import { ethers } from "hardhat";
-import { EncryptedERC__factory } from "../typechain-types";
+import { EncryptedERC__factory } from "../../typechain-types";
+import { getWallet } from "../../src/utils";
 import * as fs from "fs";
 import * as path from "path";
 
-// Read addresses from the latest deployment
-const deploymentPath = path.join(__dirname, "../deployments/latest-fuji.json");
-const deploymentData = JSON.parse(fs.readFileSync(deploymentPath, "utf8"));
-
-const eERCAddress = deploymentData.contracts.encryptedERC;
-const auditorPublicKeyAddress = "0x38332d73dC01548fC6710Acbbe8116516111781A" as any;
 const main = async () => {
-    const [deployer] = await ethers.getSigners();
-
-    const encryptedERC = await EncryptedERC__factory.connect(eERCAddress, deployer);
+    // Configure which wallet to use: 1 for first signer, 2 for second signer
+    const WALLET_NUMBER = 1;
+    
+    const wallet = await getWallet(WALLET_NUMBER);
+    const auditorPublicKeyAddress = await wallet.getAddress();
+    
+    // Read addresses from the latest deployment
+    const deploymentPath = path.join(__dirname, "../../deployments/converter/latest-converter.json");
+    const deploymentData = JSON.parse(fs.readFileSync(deploymentPath, "utf8"));
+    
+    const eERCAddress = deploymentData.contracts.encryptedERC;
+    
+    console.log("🔧 Setting auditor for EncryptedERC...");
+    console.log("EncryptedERC contract:", eERCAddress);
+    console.log("Auditor address:", auditorPublicKeyAddress);
+    
+    const encryptedERC = await EncryptedERC__factory.connect(eERCAddress, wallet);
     let auditor: any;
     try {
         auditor = await encryptedERC.setAuditorPublicKey(auditorPublicKeyAddress);

@@ -1,109 +1,39 @@
-import { ethers, zkit } from "hardhat";
+import { ethers } from "hardhat";
 import * as fs from "fs";
 import * as path from "path";
-import { privateTransfer } from "../test/helpers";
-import { bytesToHex, hexToBytes } from "@noble/hashes/utils";
-import { subOrder, mulPointEscalar, Base8 } from "@zk-kit/baby-jubjub";
-import { formatPrivKeyForBabyJub } from "maci-crypto";
-import { decryptPoint } from "../src/jub/jub";
-import { User } from "../test/user";
-
-// Derive private key from signature (same method as registration)
-export function i0(signature: string): bigint {
-    if (typeof signature !== "string" || signature.length < 132)
-      throw new Error("Invalid signature hex string");
-  
-    const hash = ethers.keccak256(signature as `0x${string}`);    
-    const cleanSig = hash.startsWith("0x") ? hash.slice(2) : hash;
-    let bytes = hexToBytes(cleanSig);                
-  
-    bytes[0]  &= 0b11111000;
-    bytes[31] &= 0b01111111;
-    bytes[31] |= 0b01000000;
-  
-    const le = bytes.reverse();                  
-    let sk = BigInt(`0x${bytesToHex(le)}`);
-  
-    sk %= subOrder;
-    if (sk === BigInt(0)) sk = BigInt(1);                    
-    return sk;                                   
-}
-
-// Function to decrypt EGCT using ElGamal decryption and find the discrete log
-function decryptEGCTBalance(privateKey: bigint, c1: [bigint, bigint], c2: [bigint, bigint]): bigint {
-    try {
-        // Decrypt the point using ElGamal
-        const decryptedPoint = decryptPoint(privateKey, c1, c2);
-        
-        // Find the discrete log (brute force for small values)
-        // The balance should be relatively small, so we can brute force
-        for (let i = 0n; i <= 10000n; i++) {
-            const testPoint = mulPointEscalar(Base8, i);
-            if (testPoint[0] === decryptedPoint[0] && testPoint[1] === decryptedPoint[1]) {
-                return i;
-            }
-        }
-        
-        console.log("⚠️  Could not find discrete log for decrypted point:", decryptedPoint);
-        return 0n;
-    } catch (error) {
-        console.log("⚠️  Error decrypting EGCT:", error);
-        return 0n;
-    }
-}
-
-// Create a User object with custom private key
-function createUserFromPrivateKey(privateKey: bigint, signer: any): User {
-    // Create a new user instance
-    const user = new User(signer);
-    
-    // Override the generated keys with our deterministic ones
-    user.privateKey = privateKey;
-    user.formattedPrivateKey = formatPrivKeyForBabyJub(privateKey);
-    user.publicKey = mulPointEscalar(Base8, user.formattedPrivateKey).map((x) => BigInt(x));
-    
-    return user;
-}
+import { privateTransfer } from "../../test/helpers";
+import { i0, decryptEGCTBalance, createUserFromPrivateKey, getWallet } from "../../src/utils";
 
 const main = async () => {
-    // Get the wallet
-    //const [owner, wallet] = await ethers.getSigners();
-    const [wallet, wallet2 ] = await ethers.getSigners();
+    // Configure which wallets to use: 1 for first signer (sender), 2 for second signer (receiver)
+    // Can be overridden with environment variables: SENDER_WALLET=1, RECEIVER_WALLET=2
+    const SENDER_WALLET_NUMBER = 1;
+    const RECEIVER_WALLET_NUMBER = 2;
+    
+    const wallet = await getWallet(SENDER_WALLET_NUMBER);
+    const wallet2 = await getWallet(RECEIVER_WALLET_NUMBER);
     const senderAddress = await wallet.getAddress();
-    
     const receiverAddress = await wallet2.getAddress();
-    //const receiverAddress = await wallet.getAddress();
-    const transferAmountStr = "20";
     
-    console.log("💡 Using hardcoded values:");
-    console.log("   Receiver:", receiverAddress);
-    console.log("   Amount:", transferAmountStr);
+    // Transfer amount - let's transfer 30 tokens (in encrypted system units)
+    const transferAmount = BigInt(30 * 100); // 30 tokens with 2 decimal places
     
-    if (!ethers.isAddress(receiverAddress)) {
-        throw new Error("❌ Invalid receiver address provided");
-    }
+    console.log("🔄 Private Transfer in Standalone EncryptedERC...");
+    console.log("Sender:", senderAddress);
+    console.log("Receiver:", receiverAddress);
+    console.log("Amount to transfer:", ethers.formatUnits(transferAmount, 2), "PRIV tokens");
     
-    const transferAmount = parseFloat(transferAmountStr);
-    if (isNaN(transferAmount) || transferAmount <= 0) {
-        throw new Error("❌ Invalid transfer amount provided");
-    }
-    
-    // Read addresses from the latest deployment
-    const deploymentPath = path.join(__dirname, "../deployments/latest-fuji.json");
+    // Read addresses from the latest standalone deployment
+    const deploymentPath = path.join(__dirname, "../../deployments/standalone/latest-standalone.json");
     const deploymentData = JSON.parse(fs.readFileSync(deploymentPath, "utf8"));
     
     const encryptedERCAddress = deploymentData.contracts.encryptedERC;
-    const testERC20Address = deploymentData.contracts.testERC20;
     const registrarAddress = deploymentData.contracts.registrar;
     
-    console.log("🔄 Performing private transfer...");
-    console.log("Sender:", senderAddress);
-    console.log("Receiver:", receiverAddress);
-    console.log("Amount:", transferAmount);
     console.log("EncryptedERC:", encryptedERCAddress);
+    console.log("Registrar:", registrarAddress);
     
     // Connect to contracts
-    const testERC20 = await ethers.getContractAt("SimpleERC20", testERC20Address, wallet);
     const encryptedERC = await ethers.getContractAt("EncryptedERC", encryptedERCAddress, wallet);
     const registrar = await ethers.getContractAt("Registrar", registrarAddress, wallet);
     
@@ -127,14 +57,13 @@ const main = async () => {
         let senderPrivateKey: bigint;
         let signature: string;
         
-        const keysPath = path.join(__dirname, "../deployments/user-keys.json");
+        const keysPath = path.join(__dirname, "../../deployments/standalone/user-keys.json");
         if (fs.existsSync(keysPath)) {
             console.log("🔑 Loading sender keys from saved file...");
             const keysData = JSON.parse(fs.readFileSync(keysPath, "utf8"));
             
-            if (keysData.userAddress === senderAddress && keysData.keysMatch) {
-                senderPrivateKey = BigInt(keysData.privateKey);
-                signature = keysData.signature;
+            if (keysData.address === senderAddress) {
+                senderPrivateKey = BigInt(keysData.privateKey.raw);
                 console.log("✅ Sender keys loaded from file");
             } else {
                 console.log("⚠️  Saved keys mismatch, generating new signature...");
@@ -163,7 +92,7 @@ Registering user with
         
         console.log("🔑 Sender public key:", [senderPublicKey[0].toString(), senderPublicKey[1].toString()]);
         console.log("🔑 Receiver public key:", [receiverPublicKey[0].toString(), receiverPublicKey[1].toString()]);
-        console.log("🔑 Auditor public key:", [auditorPublicKey[0].toString(), auditorPublicKey[1].toString()]);
+        console.log("🔑 Auditor public key:", [auditorPublicKey.x.toString(), auditorPublicKey.y.toString()]);
         
         // Verify sender's keys match
         const derivedSenderPublicKey = sender.publicKey;
@@ -172,18 +101,13 @@ Registering user with
         
         if (!senderKeysMatch) {
             console.error("❌ Sender's private key doesn't match registered public key!");
-            console.log("Run: npm run fix:keys or npm run register:user");
+            console.log("Run: npx hardhat run scripts/standalone/03_register-user.ts --network fuji");
             return;
         }
         console.log("✅ Sender keys verified");
         
-        // Get token ID
-        const tokenId = await encryptedERC.tokenIds(testERC20Address);
-        if (tokenId === 0n) {
-            console.error("❌ Token not registered in EncryptedERC yet. Make a deposit first.");
-            return;
-        }
-        console.log("📋 Token ID:", tokenId.toString());
+        // For standalone mode, tokenId is always 0
+        const tokenId = 0n;
         
         // Get sender's current encrypted balance
         console.log("🔍 Getting sender's encrypted balance...");
@@ -200,42 +124,41 @@ Registering user with
         }
         
         const senderCurrentBalance = decryptEGCTBalance(senderPrivateKey, c1, c2);
-        const encryptedSystemDecimals = 2;
-        const tokenDecimals = await testERC20.decimals();
+        const tokenDecimals = await encryptedERC.decimals();
         
-        console.log(`💰 Sender's current balance: ${ethers.formatUnits(senderCurrentBalance, encryptedSystemDecimals)} encrypted units`);
+        console.log(`💰 Sender's current balance: ${ethers.formatUnits(senderCurrentBalance, tokenDecimals)} PRIV`);
         
-        // Convert transfer amount to encrypted system units
-        const transferAmountBigInt = BigInt(Math.floor(transferAmount * (10 ** encryptedSystemDecimals)));
-        
-        if (senderCurrentBalance < transferAmountBigInt) {
-            console.error(`❌ Insufficient balance. Have: ${ethers.formatUnits(senderCurrentBalance, encryptedSystemDecimals)}, Need: ${transferAmount}`);
+        if (senderCurrentBalance < transferAmount) {
+            console.error(`❌ Insufficient balance. Have: ${ethers.formatUnits(senderCurrentBalance, tokenDecimals)}, Need: ${ethers.formatUnits(transferAmount, tokenDecimals)}`);
             return;
         }
         
-        console.log(`✅ Transfer amount: ${ethers.formatUnits(transferAmountBigInt, encryptedSystemDecimals)} encrypted units`);
+        console.log(`✅ Transfer amount: ${ethers.formatUnits(transferAmount, tokenDecimals)} PRIV tokens`);
         
         // Prepare data for transfer proof generation
         const senderEncryptedBalance = [c1[0], c1[1], c2[0], c2[1]];
         const receiverPublicKeyArray = [BigInt(receiverPublicKey[0].toString()), BigInt(receiverPublicKey[1].toString())];
-        const auditorPublicKeyArray = [BigInt(auditorPublicKey[0].toString()), BigInt(auditorPublicKey[1].toString())];
+        const auditorPublicKeyArray = [BigInt(auditorPublicKey.x.toString()), BigInt(auditorPublicKey.y.toString())];
         
         console.log("🔐 Generating transfer proof...");
-        console.log("This may take a while...");
+        console.log("⏳ This may take a while...");
         
         // Generate transfer proof using the helper function
         const { proof, senderBalancePCT } = await privateTransfer(
             sender,
             senderCurrentBalance,
             receiverPublicKeyArray,
-            transferAmountBigInt,
+            transferAmount,
             senderEncryptedBalance,
             auditorPublicKeyArray
         );
         
         console.log("✅ Transfer proof generated successfully");
         
-        // The proof returned from privateTransfer is already in the correct format (CalldataTransferCircuitGroth16)
+        // Debug the proof structure
+        console.log("🔍 Debug: transfer proof structure:", proof);
+        
+        // Use the proof directly (since privateTransfer returns the correct calldata format)
         const transferProof = proof;
         
         console.log("📝 Submitting transfer to contract...");
@@ -264,15 +187,16 @@ Registering user with
         const newC2: [bigint, bigint] = [BigInt(newEGCT.c2.x.toString()), BigInt(newEGCT.c2.y.toString())];
         const senderNewBalance = decryptEGCTBalance(senderPrivateKey, newC1, newC2);
         
-        console.log(`💰 Sender's new balance: ${ethers.formatUnits(senderNewBalance, encryptedSystemDecimals)} encrypted units`);
-        console.log(`📤 Amount transferred: ${ethers.formatUnits(transferAmountBigInt, encryptedSystemDecimals)} encrypted units`);
+        console.log(`💰 Sender's new balance: ${ethers.formatUnits(senderNewBalance, tokenDecimals)} PRIV`);
+        console.log(`📤 Amount transferred: ${ethers.formatUnits(transferAmount, tokenDecimals)} PRIV`);
         
         console.log("\n🎯 Transfer Summary:");
         console.log(`   From: ${senderAddress}`);
         console.log(`   To: ${receiverAddress}`);
-        console.log(`   Amount: ${transferAmount} tokens`);
+        console.log(`   Amount: ${ethers.formatUnits(transferAmount, tokenDecimals)} PRIV tokens`);
         console.log(`   Transaction: ${transferTx.hash}`);
-        console.log("\n💡 The receiver can check their balance using npm run check:balance");
+        console.log("\n💡 The receiver can check their balance using:");
+        console.log("   npx hardhat run scripts/standalone/06_check-balance.ts --network fuji");
         
     } catch (error) {
         console.error("❌ Error during private transfer:");
