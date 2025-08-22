@@ -112,4 +112,50 @@ Each investor runs the transfer script to send their private tokens to the vault
 ```bash
 # Example for Investor 1. Set their PRIVATE_KEY in .env.
 # RECIPIENT_PK is the vault's public key from its .keys.json file.
-RECIPIENT
+RECIPIENT_PK=<VAULT_PUBLIC_KEY> AMOUNT=10 npx hardhat run scripts/converter/07_transfer.ts --network localhost
+```
+
+**3. Tally & Build Merkle Tree**
+This is the off-chain step performed by the project owner.
+
+1.  **Decrypt** the incoming transactions using the Go decryption tool.
+2.  **Create** an allocation file: `scripts/ido/allocations.json`.
+3.  **Run** the build script:
+    ```bash
+    npx hardhat run scripts/ido/02_build_merkle.ts
+    ```
+**➡️ Action:** Save the `MERKLE_ROOT` from the output.
+
+**4. Finalize the IDO**
+Lock the sale results on-chain.
+```bash
+IDO_ADDRESS=<YOUR_IDO_ADDRESS> \
+MERKLE_ROOT=<YOUR_MERKLE_ROOT> \
+npx hardhat run scripts/ido/03_finalize_ido.ts --network localhost
+```
+
+**5. Fund the IDO Contract**
+Deposit the total amount of `MPT` to be claimed.
+```bash
+IDO_ADDRESS=<YOUR_IDO_ADDRESS> \
+AMOUNT="1500.0" \
+npx hardhat run scripts/ido/04_fund_ido.ts --network localhost
+```
+
+**6. Investors Claim Tokens**
+This script claims tokens for all investors and verifies their final balances.
+```bash
+IDO_ADDRESS=<YOUR_IDO_ADDRESS> \
+npx hardhat run scripts/ido/06_multi_claim_and_verify.ts --network localhost
+```
+
+**Congratulations! Your private GhostLaunch IDO is complete.**
+
+---
+
+## 🔧 Troubleshooting
+
+* **"User not registered"**: Ensure you have run `scripts/converter/03_register-user.ts` for the wallet address in question.
+* **"Error: ENOENT: no such file or directory, open 'scripts/ido/allocations.json'"**: You must manually create the `allocations.json` file before running the Merkle tree builder script.
+* **"ProviderError: ... reverted with ... NothingToClaim()"**: This error is expected if you try to run the claim script for the same user more than once. A user can only claim their allocation a single time.
+* **"Invalid Merkle Proof"**: This means the proof provided does not match the Merkle root stored on-chain. Ensure you are using the correct `MERKLE_ROOT` when finalizing and that your `allocations.json` file is correct.
