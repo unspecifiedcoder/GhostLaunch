@@ -1,0 +1,22 @@
+{
+  "0xF6475Ba5D26Bd817afAc3ded9b8018bEaf7Acf9A": {
+    "allocationWei": "50000000000000000000",
+    "proof": [
+      "0xa13996e8379887549760f848ef0d8660c168e89f771c795a63563f8aac0de794",
+      "0x3c39fd7c12edf29f723e49d20f2ff5617a2317641a5ba210edfbc585b9d772ff"
+    ]
+  },
+  "0x72db032c0dFB6E7502e16A73fabdab31712dc706": {
+    "allocationWei": "50000000000000000000",
+    "proof": [
+      "0xc617ba207ad0e8540d14c49635c004307eca6f1806ba212a4da6733c32472b7f",
+      "0x3c39fd7c12edf29f723e49d20f2ff5617a2317641a5ba210edfbc585b9d772ff"
+    ]
+  },
+  "0x8046e63138bCCCaB69EE1c631ccE9975C7229F00": {
+    "allocationWei": "50000000000000000000",
+    "proof": [
+      "0xdda21bb710621cb7a8ef5d34db45fc0a1a5a90815ddeb096cf79c5829b5ced7c"
+    ]
+  }
+}
