@@ -8,7 +8,7 @@ import {
   getDefaultConfig,
   RainbowKitProvider,
 } from "@rainbow-me/rainbowkit";
-import { WagmiConfig } from "wagmi";
+import { WagmiProvider  } from "wagmi";
 import { avalancheFuji } from "wagmi/chains";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
@@ -25,11 +25,11 @@ const queryClient = new QueryClient();
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
-      <WagmiConfig config={config}>
+      <WagmiProvider  config={config}>
         <RainbowKitProvider>
           <App />
         </RainbowKitProvider>
-      </WagmiConfig>
+      </WagmiProvider >
     </QueryClientProvider>
   </React.StrictMode>
 );
