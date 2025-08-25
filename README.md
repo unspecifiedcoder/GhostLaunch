@@ -159,3 +159,59 @@ npx hardhat run scripts/ido/06_multi_claim_and_verify.ts --network localhost
 * **"Error: ENOENT: no such file or directory, open 'scripts/ido/allocations.json'"**: You must manually create the `allocations.json` file before running the Merkle tree builder script use `scripts/converter/10_decryptor.ts` to take create the file from the transactions recieved privately .
 * **"ProviderError: ... reverted with ... NothingToClaim()"**: This error is expected if you try to run the claim script for the same user more than once. A user can only claim their allocation a single time.
 * **"Invalid Merkle Proof"**: This means the proof provided does not match the Merkle root stored on-chain. Ensure you are using the correct `MERKLE_ROOT` when finalizing and that your `allocations.json` file is correct.
+
+## 🧪 Test Checklist
+
+- Register vault + contributors  
+- Contributors → deposit + private transfer to vault  
+- Auditor decrypts vault → builds allocation map  
+- Build Merkle tree → push root → finalize  
+- Deposit project tokens into IDO  
+- Users claim successfully  
+
+---
+
+## 📂 Structure
+
+- `contracts/IDO.sol` — Merkle-based claim contract  
+- `contracts/ProjectToken.sol` — simple ERC20 (MPT)  
+- `scripts/converter/*` — eERC setup + transfers  
+- `scripts/ido/*` — deploy, finalize, fund, claim  
+
+---
+
+## ⚠️ Notes & Caveats
+
+- The current frontend (`eerc-frontend/`) integrates with the `@avalabs/eerc-sdk`.  
+  However, we faced several compatibility issues with this SDK in a browser environment:
+  - Missing Node.js polyfills (`Buffer`, `process`, `util`) required for the SDK.
+  - Vite bundling errors due to `esbuild` not fully supporting Node core modules.
+  - React and dependency version mismatches (React 19.x vs peer deps expecting 18.x).
+  - Occasional silent failures when calling `useEncryptedBalance()` (no logs, no errors).
+
+- As a result, **the frontend may not fully function with the SDK out of the box**.  
+  We had to add polyfills (`buffer`, `process`, `util`) and monkey-patch `vite.config.ts` to get it partially running.
+
+- If you plan to use the frontend:
+  1. Make sure you are on **Node.js v20.19+** (required by Vite 7.x).  
+  2. Install missing polyfills:  
+     ```bash
+     npm install buffer process util
+     ```
+  3. Adjust your `vite.config.ts` to alias Node core modules:
+     ```ts
+     resolve: {
+       alias: {
+         util: "util/",
+         process: "process/browser",
+         buffer: "buffer",
+       },
+     },
+     ```
+  4. Be prepared to debug and patch SDK/browser compatibility issues.
+
+- In practice, we recommend focusing on the **Hardhat scripts** for reliable testing and using the frontend primarily as a **demo UI**, unless further SDK/browser compatibility work is done.
+
+
+
+🔥 Hardcore mode: run full e2e on localhost, then push to Fuji / mainnet when ready. No excuses.
