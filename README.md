@@ -6,7 +6,7 @@ GhostLaunch is a platform for conducting private Initial DEX Offerings (IDOs). I
 
 The process is divided into three main phases:
 
-1.  ** funding Phase (Private) 🕵️**: Investors convert a public ERC20 token (e.g., `TEST`) into its private eERC-20 equivalent. They then contribute these private tokens to the IDO's vault address. On-chain observers can see that a transfer occurred, but not the amount.
+1.  **Funding Phase (Private) 🕵️**: Investors convert a public ERC20 token (e.g., `TEST`) into its private eERC-20 equivalent. They then contribute these private tokens to the IDO's vault address. On-chain observers can see that a transfer occurred, but not the amount.
 2.  **Tally Phase (Off-Chain) 🧮**: After the funding period ends, the project owner uses a secure key to decrypt the incoming private transfers. They tally the contributions, calculate the corresponding project token allocations, and build a Merkle tree of the final results.
 3.  **Claim Phase (Public)  दावा**: The owner publishes the Merkle root on the `IDO` smart contract. This locks in the sale results. Investors can then use their Merkle proof to publicly claim their share of the new project token (`MPT`).
 
