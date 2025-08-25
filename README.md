@@ -156,6 +156,6 @@ npx hardhat run scripts/ido/06_multi_claim_and_verify.ts --network localhost
 ## 🔧 Troubleshooting
 
 * **"User not registered"**: Ensure you have run `scripts/converter/03_register-user.ts` for the wallet address in question.
-* **"Error: ENOENT: no such file or directory, open 'scripts/ido/allocations.json'"**: You must manually create the `allocations.json` file before running the Merkle tree builder script.
+* **"Error: ENOENT: no such file or directory, open 'scripts/ido/allocations.json'"**: You must manually create the `allocations.json` file before running the Merkle tree builder script use `scripts/converter/10_decryptor.ts` to take create the file from the transactions recieved privately .
 * **"ProviderError: ... reverted with ... NothingToClaim()"**: This error is expected if you try to run the claim script for the same user more than once. A user can only claim their allocation a single time.
 * **"Invalid Merkle Proof"**: This means the proof provided does not match the Merkle root stored on-chain. Ensure you are using the correct `MERKLE_ROOT` when finalizing and that your `allocations.json` file is correct.
