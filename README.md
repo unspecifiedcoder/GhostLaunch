@@ -152,6 +152,15 @@ npx hardhat run scripts/ido/06_multi_claim_and_verify.ts --network localhost
 **Congratulations! Your private GhostLaunch IDO is complete.**
 
 ---
+## 📡 Deployments
+
+Current live deployment of **GhostLaunch IDO** for `MPT` token:
+
+- **Project Token (MPT)**: [`0xa4589D893d4Dc98d680337832b6a9593bF2fA9cd`](https://snowtrace.io/address/0xa4589D893d4Dc98d680337832b6a9593bF2fA9cd)  
+- **IDO Contract**: [`0x24ea34EAffB7E17d02fe05fbF12351bCC670573b`](https://snowtrace.io/address/0x24ea34EAffB7E17d02fe05fbF12351bCC670573b)  
+- **Vault EOA** (receiving encrypted TEST → allocations): `0xF6475Ba5D26Bd817afAc3ded9b8018bEaf7Acf9A`
+
+---
 
 ## 🔧 Troubleshooting
 
@@ -211,7 +220,5 @@ npx hardhat run scripts/ido/06_multi_claim_and_verify.ts --network localhost
   4. Be prepared to debug and patch SDK/browser compatibility issues.
 
 - In practice, we recommend focusing on the **Hardhat scripts** for reliable testing and using the frontend primarily as a **demo UI**, unless further SDK/browser compatibility work is done.
-
-
 
 🔥 Hardcore mode: run full e2e on localhost, then push to Fuji / mainnet when ready. No excuses.
